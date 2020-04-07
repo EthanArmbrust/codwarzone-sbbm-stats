@@ -5,7 +5,28 @@ import requests
 import urllib.parse
 
 
-def read_json(path):
+class Player:
+    def __init__(self, username, platform, platform_network):
+        self.username = remove_clan_tag(username)
+        self.platform = platform
+        self.platform_network = platform_network
+        if not platform_network == "battle":
+            stats_json = get_player_overall_stats_wz(platform_network, self.username)
+            if stats_json['status'] == 'success':
+                print("Found stats for {}".format(self.username))
+                self.weeklyStats = stats_json['data']['weekly']['all']['properties']
+                self.lifetimeStats = stats_json['data']['lifetime']['all']['properties']
+            else:
+                print("No stats for {}".format(self.username))
+                self.weeklyStats = {}
+                self.lifetimeStats = {}
+        else:
+            print("Skipping PC user {}".format(self.username))
+            self.weeklyStats = {}
+            self.lifetimeStats = {}
+
+
+def read_json_file(path):
     with open(path) as f:
         data = json.load(f)
     return data
@@ -42,7 +63,13 @@ def json_to_csv(data, csv_output, playerDataRows, prune=True, ignoreNonSoloMatch
     print("Wrote to {}".format(csv_output))
 
 
-def get_player_overall_stats(platform, username):
+def get_player_overall_stats_wz(platform, username):
+    url = "https://my.callofduty.com/api/papi-client/stats/cod/v1/title/mw/platform/{}/gamer/{}/profile/type/wz".format(platform, urllib.parse.quote(username))
+    response = requests.request("GET", url, headers={}, data={})
+    return response.json()
+
+
+def get_player_overall_stats_mp(platform, username):
     url = "https://my.callofduty.com/api/papi-client/stats/cod/v1/title/mw/platform/{}/gamer/{}/profile/type/mp".format(platform, urllib.parse.quote(username))
     response = requests.request("GET", url, headers={}, data={})
     return response.json()
@@ -57,13 +84,43 @@ def remove_clan_tag(username):
     else:
         return username
 
+def avg_kd_for_match(data, match_num):
+    players = get_players_in_match(data, match_num)
+    n = 0
+    kd_sum = 0
+    for p in players:
+        try:
+            kd_sum += p.lifetimeStats['kdRatio']
+            n += 1
+        except:
+            pass
+    print("n = ", n)
+    return kd_sum / n
+
+
+
 
 def get_players_in_match(data, match_num):
     match = data['data']['matches'][match_num]
     players = []
     for team in match['rankedTeams']:
         for player in team['players']:
-            players.append({'username': player['username'], 'platform': player['platform']})
+            if player['platform'] == "xb3":
+                plat_net = 'xbl'
+            elif player['platform'] == "ps4":
+                plat_net = 'psn'
+            elif player['platform'] == "battlenet":
+                plat_net = 'battle'
+            p = Player(player['username'], player['platform'], plat_net)
+            if  len(players) % 5 == 0:
+                print("Analyzed {} players".format(len(players)))
+
+            players.append(p)
+            '''
+            if len(players) >= 15:
+                return players
+            '''
+            #players.append({'username': player['username'], 'platform': player['platform']})
     return players
                         
 
@@ -110,6 +167,8 @@ def main():
                          'percentTimeMoving', 'rank', 'longestStreak', 'scorePerMinute', 'damageDone',
                          'distanceTraveled', 'deaths', 'damageTaken']
         json_to_csv(response.json(), output_file, desiredParams)
+        print("Avg K/D in match 0:", avg_kd_for_match(response.json(), 0))
+        '''
         players = get_players_in_match(response.json(), 2)
         battlenet = 0
         xb3 = 0
@@ -119,24 +178,25 @@ def main():
                 battlenet += 1
             elif p["platform"] == "xb3":
                 xb3 += 1
-                player_info = get_player_overall_stats('xbl', remove_clan_tag(p['username']))
+                player_info = get_player_overall_stats_wz('xbl', remove_clan_tag(p['username']))
                 if player_info['status'] == 'success':
                     print("got data for {} on xbox".format(p['username']))
                     print("skipping data for {} on pc".format(p['username']))
                 else:
                     print("could not get data for {} on xbox".format(p['username']))
             elif p["platform"] == "ps4":
-                player_info = get_player_overall_stats('psn', remove_clan_tag(p['username']))
+                player_info = get_player_overall_stats_wz('psn', remove_clan_tag(p['username']))
                 if player_info['status'] == 'success':
                     print("got data for {} on ps4".format(p['username']))
                 else:
                     print("could not get data for {} on ps4".format(p['username']))
                 ps4 += 1
-
-
         print("PC players: {}".format(battlenet))
         print("PS4 players: {}".format(ps4))
         print("Xbox players: {}".format(xb3))
+        '''
+
+
     else:
         print("Data not found")
 
